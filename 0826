@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>智慧農場遠端監控面板</title>
+  <style>
+    body { font-family: "Microsoft JhengHei", sans-serif; background:#f0f8ff; text-align:center; padding:30px; margin:0; }
+    h1 { color:#333; }
+    .data-block { font-size:20px; margin:10px 0; }
+    button {
+      font-size:18px; padding:10px 20px; margin:10px 5px; cursor:pointer;
+      border:none; border-radius:5px; background:#4CAF50; color:#fff;
+      transition:background-color 0.3s ease;
+    }
+    button:hover:not(:disabled) { background:#45a049; }
+    button:disabled { background:#ccc; color:#666; cursor:not-allowed; }
+    .status { font-weight:bold; }
+    .charts {
+      display:flex; justify-content:center; gap:20px; flex-wrap:wrap; margin-top:20px;
+    }
+    .charts iframe {
+      border:1px solid #ccc; flex:1 1 300px; max-width:450px; height:260px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🌱 智慧農場溫濕土遠端監控面板</h1>
+
+  <div class="data-block">📡 裝置狀態：<span id="deviceStatus" class="status">讀取中...</span></div>
+  <div class="data-block">🕒 最後更新時間：<span id="lastUpdate" class="status">讀取中...</span></div>
+  <div class="data-block">
+    <button id="btnToggleMode">切換模式</button> 目前模式：<span id="modeStatus" class="status">讀取中...</span>
+  </div>
+  <div class="data-block">
+    <button id="btnToggleRelay">切換繼電器</button> 繼電器狀態：<span id="relayStatus" class="status">讀取中...</span>
+  </div>
+  <div class="data-block">🌡️ 溫度：<span id="temperature">讀取中...</span></div>
+  <div class="data-block">💧 濕度：<span id="humidity">讀取中...</span></div>
+  <div class="data-block">🌾 土壤濕度：<span id="soil">讀取中...</span></div>
+
+  <h2>📈 歷史資料圖表</h2>
+  <div class="charts">
+    <iframe src="https://thingspeak.com/channels/2925557/charts/1?api_key=LZOID244VPGKMRMA&bgcolor=%23ffffff&color=%23d62020&dynamic=true&type=line&title=溫度" loading="lazy" referrerpolicy="no-referrer"></iframe>
+    <iframe src="https://thingspeak.com/channels/2925557/charts/2?api_key=LZOID244VPGKMRMA&bgcolor=%23ffffff&color=%230096ff&dynamic=true&type=line&title=濕度" loading="lazy" referrerpolicy="no-referrer"></iframe>
+    <iframe src="https://thingspeak.com/channels/2925557/charts/3?api_key=LZOID244VPGKMRMA&bgcolor=%23ffffff&color=%2399cc00&dynamic=true&type=line&title=土壤濕度" loading="lazy" referrerpolicy="no-referrer"></iframe>
+  </div>
+
+<script>
+  const blynkToken = "o_yKGcjAjDNAqxEVN-z5w3bFjVcn6skl";
+  const thingspeakChannel = "2925557";
+  const thingspeakApiKey = "LZOID244VPGKMRMA";
+
+  let mode = 1; // 1=自動, 0=手動
+  let relayState = 0;
+
+  const deviceStatusEl = document.getElementById("deviceStatus");
+  const lastUpdateEl = document.getElementById("lastUpdate");
+  const modeStatusEl = document.getElementById("modeStatus");
+  const relayStatusEl = document.getElementById("relayStatus");
+  const tempEl = document.getElementById("temperature");
+  const humidityEl = document.getElementById("humidity");
+  const soilEl = document.getElementById("soil");
+
+  const btnToggleMode = document.getElementById("btnToggleMode");
+  const btnToggleRelay = document.getElementById("btnToggleRelay");
+
+  async function getV(pin) {
+    try {
+      const url = `https://blynk.cloud/external/api/get?token=${blynkToken}&V${pin}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`Fetch V${pin} failed: ${resp.status}`);
+      return (await resp.text()).trim();
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  }
+
+  async function setV(pin, val) {
+    try {
+      const url = `https://blynk.cloud/external/api/update?token=${blynkToken}&V${pin}=${val}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`Set V${pin} failed: ${resp.status}`);
+    } catch (e) {
+      console.error(e);
+      throw e;
+    }
+  }
+
+  async function updateRelayStatus() {
+    try {
+      relayState = parseInt(await getV(0));
+      relayStatusEl.innerText = relayState === 1 ? "開啟" : "關閉";
+      relayStatusEl.style.color = relayState === 1 ? "green" : "red";
+
+      if (mode === 0) {
+        btnToggleRelay.disabled = false;
+        btnToggleRelay.innerText = relayState === 1 ? "關閉澆水" : "開啟澆水";
+      } else {
+        btnToggleRelay.disabled = true;
+        btnToggleRelay.innerText = "自動模式中不可控制";
+      }
+    } catch {
+      relayStatusEl.innerText = "錯誤";
+      relayStatusEl.style.color = "gray";
+      btnToggleRelay.disabled = true;
+    }
+  }
+
+  async function updateModeStatus() {
+    try {
+      mode = parseInt(await getV(4));
+      modeStatusEl.innerText = mode === 1 ? "自動" : "手動";
+      modeStatusEl.style.color = mode === 1 ? "green" : "orange";
+      await updateRelayStatus();
+    } catch {
+      modeStatusEl.innerText = "錯誤";
+      modeStatusEl.style.color = "gray";
+    }
+  }
+
+  async function toggleMode() {
+    try {
+      mode = mode === 1 ? 0 : 1;
+      await setV(4, mode);
+      await updateModeStatus();
+    } catch (e) {
+      alert("切換模式失敗：" + e.message);
+    }
+  }
+
+  async function toggleRelay() {
+    if (mode === 1) {
+      alert("自動模式中無法手動切換!");
+      return;
+    }
+    try {
+      relayState = relayState === 1 ? 0 : 1;
+      await setV(0, relayState);
+      await updateRelayStatus();
+    } catch (e) {
+      alert("切換繼電器失敗：" + e.message);
+    }
+  }
+
+  async function updateDeviceStatus() {
+    try {
+      const url = `https://blynk.cloud/external/api/isHardwareConnected?token=${blynkToken}`;
+      const resp = await fetch(url);
+      const txt = await resp.text();
+      const online = txt === "true";
+      deviceStatusEl.innerText = online ? "在線" : "離線";
+      deviceStatusEl.style.color = online ? "green" : "red";
+    } catch {
+      deviceStatusEl.innerText = "錯誤";
+      deviceStatusEl.style.color = "gray";
+    }
+  }
+
+  async function fetchSensorData() {
+    try {
+      const url = `https://api.thingspeak.com/channels/${thingspeakChannel}/feeds/last.json?api_key=${thingspeakApiKey}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`ThingSpeak 取得資料失敗：${resp.status}`);
+      const data = await resp.json();
+
+      tempEl.innerText = data.field1 ? `${data.field1} °C` : "無資料";
+      humidityEl.innerText = data.field2 ? `${data.field2} %` : "無資料";
+      soilEl.innerText = data.field3 ? `${data.field3} %` : "無資料";
+
+      lastUpdateEl.innerText = data.created_at
+        ? new Date(data.created_at).toLocaleString()
+        : "無資料";
+    } catch (e) {
+      console.error(e);
+      tempEl.innerText = humidityEl.innerText = soilEl.innerText = "錯誤";
+      lastUpdateEl.innerText = "錯誤";
+    }
+  }
+
+  async function refreshAll() {
+    await Promise.all([
+      updateDeviceStatus(),
+      updateModeStatus(),
+      fetchSensorData(),
+    ]);
+  }
+
+  btnToggleMode.addEventListener("click", toggleMode);
+  btnToggleRelay.addEventListener("click", toggleRelay);
+
+  // 頁面載入時先刷新一次資料
+  refreshAll();
+
+  // 每 30 秒刷新資料
+  setInterval(refreshAll, 30000);
+</script>
+</body>
+</html>
